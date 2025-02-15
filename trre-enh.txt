@@ -1,0 +1,175 @@
+<div style="display: flex;">
+  <!-- Sidebar for Node Details -->
+  <div style="width: 250px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9;">
+    <h3>Node Details</h3>
+    <div *ngIf="selectedNode">
+      <p><strong>Label:</strong> {{ selectedNode.label }}</p>
+      <p><strong>Type:</strong> {{ selectedNode.type }}</p>
+      <p><strong>ID:</strong> {{ selectedNode.id }}</p>
+    </div>
+  </div>
+
+  <!-- Cytoscape Graph Container -->
+  <div #cyContainer style="width: calc(100% - 250px); height: 600px; border: 1px solid #ccc;"></div>
+</div>
+
+
+
+
+import { Component, OnInit, ElementRef, ViewChild } from '@angular/core';
+import * as cytoscape from 'cytoscape';
+import coseBilkent from 'cytoscape-cose-bilkent';
+import neo4j from 'neo4j-driver';
+
+// Register layout
+cytoscape.use(coseBilkent);
+
+@Component({
+  selector: 'app-cytoscape-graph',
+  templateUrl: './cytoscape-graph.component.html',
+  styleUrls: ['./cytoscape-graph.component.css']
+})
+export class CytoscapeGraphComponent implements OnInit {
+  @ViewChild('cyContainer', { static: true }) cyContainer!: ElementRef;
+  private driver: any;
+  private cy: any;
+  searchQuery: string = '';
+  filterType: string = '';
+  selectedNode: any = null;
+
+  constructor() {
+    this.driver = neo4j.driver(
+      'neo4j://localhost:7687',
+      neo4j.auth.basic('neo4j', 'password')
+    );
+  }
+
+  ngOnInit(): void {
+    this.fetchGraphData();
+  }
+
+  async fetchGraphData() {
+    const session = this.driver.session();
+    const query = "MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 50";
+
+    try {
+      const result = await session.run(query);
+      const elements: any[] = [];
+
+      result.records.forEach(record => {
+        const nodeA = record.get('n');
+        const nodeB = record.get('m');
+        const relationship = record.get('r');
+
+        if (!elements.find(e => e.data.id === nodeA.identity.toString())) {
+          elements.push({ data: { id: nodeA.identity.toString(), label: nodeA.properties.name || 'Node', type: nodeA.labels[0] || '' } });
+        }
+        if (!elements.find(e => e.data.id === nodeB.identity.toString())) {
+          elements.push({ data: { id: nodeB.identity.toString(), label: nodeB.properties.name || 'Node', type: nodeB.labels[0] || '' } });
+        }
+
+        elements.push({ data: { source: nodeA.identity.toString(), target: nodeB.identity.toString(), label: relationship.type } });
+      });
+
+      session.close();
+      this.initializeCytoscape(elements);
+    } catch (error) {
+      console.error('Neo4j Query Error:', error);
+    }
+  }
+
+  initializeCytoscape(elements: any[]) {
+    this.cy = cytoscape({
+      container: this.cyContainer.nativeElement,
+      elements: elements,
+      style: [
+        { selector: 'node', style: { 'background-color': '#007bff', 'label': 'data(label)', 'color': '#fff' } },
+        { selector: 'edge', style: { 'width': 2, 'line-color': '#ccc', 'target-arrow-shape': 'triangle' } }
+      ],
+      layout: { name: 'cose-bilkent' }
+    });
+
+    // Node click interaction
+    this.cy.on('tap', 'node', (event: any) => {
+      const node = event.target;
+      this.selectedNode = {
+        id: node.id(),
+        label: node.data('label'),
+        type: node.data('type')
+      };
+    });
+  }
+
+  searchNode() {
+    if (!this.cy) return;
+
+    const query = this.searchQuery.toLowerCase();
+    this.cy.nodes().forEach(node => {
+      if (node.data('label').toLowerCase().includes(query)) {
+        node.style('background-color', 'yellow');
+      } else {
+        node.style('background-color', '#007bff');
+      }
+    });
+  }
+
+  applyFilter() {
+    if (!this.cy) return;
+
+    this.cy.nodes().forEach(node => {
+      if (this.filterType && node.data('type') !== this.filterType) {
+        node.hide();
+      } else {
+        node.show();
+      }
+    });
+  }
+
+  resetGraph() {
+    this.searchQuery = '';
+    this.filterType = '';
+    this.selectedNode = null;
+
+    this.cy.nodes().style('background-color', '#007bff').show();
+  }
+}
+
+
+
+update nodestyle in initializeCytoscape
+
+
+initializeCytoscape(elements: any[]) {
+  this.cy = cytoscape({
+    container: this.cyContainer.nativeElement,
+    elements: elements,
+    style: [
+      { 
+        selector: 'node', 
+        style: { 
+          'shape': 'rectangle',  // Change shape to square/rectangle
+          'width': '60px',       // Set fixed width
+          'height': '60px',      // Set fixed height
+          'background-color': '#007bff',
+          'label': 'data(label)',
+          'text-valign': 'center', // Align text inside the box
+          'text-halign': 'center', // Center text horizontally
+          'color': '#fff',
+          'font-size': '12px',
+          'border-width': '2px',
+          'border-color': '#004085',
+          'border-style': 'solid'
+        } 
+      },
+      { 
+        selector: 'edge', 
+        style: { 
+          'width': 2, 
+          'line-color': '#ccc', 
+          'target-arrow-shape': 'triangle' 
+        } 
+      }
+    ],
+    layout: { name: 'cose-bilkent' }
+  });
+}
